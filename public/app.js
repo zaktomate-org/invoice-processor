@@ -397,11 +397,14 @@ window.removeFile = removeFile;
 window.deleteKey = deleteKey;
 window.retrySingleFailed = retrySingleFailed;
 window.selectDatabase = selectDatabase;
-window.changeDatabase = function() {
+window.changeDatabase = async function() {
   console.log("Change button clicked");
-  dbPickerState.hidden = false;
-  dbConfiguredState.hidden = true;
-  loadDatabases();
+  try {
+    await fetch("/api/databases/clear", { method: "POST" });
+    await loadDatabases();
+  } catch (e) {
+    console.error("Failed to change database:", e);
+  }
 };
 async function loadFailedSaves() {
   try {

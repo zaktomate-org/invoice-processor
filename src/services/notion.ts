@@ -114,10 +114,10 @@ export async function listSharedDatabases(): Promise<Array<{ dataSourceId: strin
 }
 
 /**
- * Select a database (data source), ensure schema exists, save to .env
+ * Select a database (data source) and save to .env
+ * Tries to ensure schema but does NOT fail if schema update doesn't work.
  */
 export async function selectDatabase(dataSourceId: string): Promise<{ id: string; name: string; schemaWarnings: string[] }> {
-  // Find the matching data source to get its database_id
   const allDataSources = await listSharedDatabases();
   const selected = allDataSources.find((ds) => ds.dataSourceId === dataSourceId);
 
@@ -125,23 +125,31 @@ export async function selectDatabase(dataSourceId: string): Promise<{ id: string
     throw new Error("Data source not found. Make sure it's shared with your integration.");
   }
 
-  console.log(`\n📊 Selecting database: "${selected.name}"`);
+  console.log(`\n📊 Selecting: "${selected.name}"`);
   console.log(`   data_source_id: ${selected.dataSourceId}`);
   console.log(`   database_id:    ${selected.databaseId}`);
 
-  // Ensure the database schema has all required columns
-  const schemaResult = await ensureDatabaseSchema(selected.databaseId);
+  // Try to ensure schema, but don't fail if it doesn't work
+  let schemaWarnings: string[] = [];
+  try {
+    const result = await ensureDatabaseSchema(selected.databaseId);
+    schemaWarnings = result.schemaWarnings;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    console.warn(`   ⚠️ Schema update skipped: ${msg}`);
+    schemaWarnings.push(`Schema auto-update skipped: ${msg}`);
+    schemaWarnings.push("You may need to manually add required columns to your database.");
+  }
 
-  // Save the data_source_id to .env
+  // Always save the selection regardless of schema update success
   updateEnvFile("NOTION_DATABASE_ID", dataSourceId);
   Bun.env.NOTION_DATABASE_ID = dataSourceId;
   process.env.NOTION_DATABASE_ID = dataSourceId;
   cachedDataSourceId = dataSourceId;
 
-  console.log(`   ✅ Schema warnings: ${schemaResult.schemaWarnings.length > 0 ? schemaResult.schemaWarnings.join(", ") : "none"}`);
-  console.log(`   ✅ Database ID saved to .env\n`);
+  console.log(`   ✅ Saved to .env\n`);
 
-  return { id: dataSourceId, name: selected.name, schemaWarnings: schemaResult.schemaWarnings };
+  return { id: dataSourceId, name: selected.name, schemaWarnings };
 }
 
 const REQUIRED_COLUMNS = [
