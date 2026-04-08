@@ -6,7 +6,7 @@ const ENV_FILE = ".env";
 
 // Lazy-initialized Notion client
 let notionClient: Client | null = null;
-let cachedDatabaseId: string | null = null;
+let cachedDataSourceId: string | null = null;
 
 function getClient(): Client {
   if (!notionClient) {
@@ -63,9 +63,10 @@ function updateEnvFile(key: string, value: string): void {
 }
 
 /**
- * List all databases shared with this integration
+ * List all data sources (databases) shared with this integration
+ * The Notion API now uses data_source objects, not database objects directly.
  */
-export async function listSharedDatabases(): Promise<Array<{ id: string; name: string; url: string }>> {
+export async function listSharedDatabases(): Promise<Array<{ id: string; name: string; databaseId: string }>> {
   const notion = getClient();
 
   try {
@@ -76,24 +77,23 @@ export async function listSharedDatabases(): Promise<Array<{ id: string; name: s
       },
     });
 
-    const databases: Array<{ id: string; name: string; url: string }> = [];
+    const databases: Array<{ id: string; name: string; databaseId: string }> = [];
 
     for (const result of response.results) {
-      // Results can be database objects or data_source objects
       const obj = result as any;
-      const id = obj.id;
+      const dataSourceId = obj.id;
+      // The parent database_id is nested
+      const databaseId = obj.parent?.database_id || obj.database_id || obj.id;
 
-      // Get the name from title or name field
+      // Get the name
       let name = "Unnamed Database";
-      if (obj.title && Array.isArray(obj.title) && obj.title.length > 0) {
-        name = obj.title.map((t: any) => t.plain_text || t.text?.content || "").join("").trim() || "Unnamed Database";
-      } else if (obj.name) {
+      if (obj.name) {
         name = obj.name;
+      } else if (obj.title && Array.isArray(obj.title) && obj.title.length > 0) {
+        name = obj.title.map((t: any) => t.plain_text || t.text?.content || "").join("").trim() || "Unnamed Database";
       }
 
-      const url = obj.url || `https://notion.so/${id.replace(/-/g, "")}`;
-
-      databases.push({ id, name, url });
+      databases.push({ id: dataSourceId, name, databaseId });
     }
 
     return databases;
@@ -104,34 +104,33 @@ export async function listSharedDatabases(): Promise<Array<{ id: string; name: s
 }
 
 /**
- * Select a database and save its ID to .env
+ * Select a database (data source) and save its ID to .env
+ * Also ensures the database schema has all required columns.
  */
-export async function selectDatabase(id: string): Promise<{ id: string; name: string }> {
+export async function selectDatabase(dataSourceId: string): Promise<{ id: string; name: string; schemaWarnings: string[] }> {
   const notion = getClient();
 
-  // Validate the database exists and is accessible
-  try {
-    const db = await notion.databases.retrieve({ database_id: id });
-    const title = (db as any).title || [];
-    const name = title.map((t: any) => t.plain_text || t.text?.content || "").join("").trim() || "Unnamed Database";
+  // We need to get the parent database_id to check/update schema
+  // The data_source object from search has parent.database_id
+  // Let's retrieve via searching for this specific data_source
+  const allDataSources = await listSharedDatabases();
+  const selected = allDataSources.find((ds) => ds.id === dataSourceId);
 
-    // Save to .env
-    updateEnvFile("NOTION_DATABASE_ID", id);
-    // Update runtime env
-    Bun.env.NOTION_DATABASE_ID = id;
-    process.env.NOTION_DATABASE_ID = id;
-    cachedDatabaseId = id;
-
-    // Ensure the database schema has all required columns
-    const schemaResult = await ensureDatabaseSchema(id);
-
-    return { id, name, ...(schemaResult.schemaWarnings.length > 0 ? { warnings: schemaResult.schemaWarnings } : {}) };
-  } catch (error) {
-    if (error instanceof Error) {
-      throw new Error(`Cannot access database: ${error.message}`);
-    }
-    throw error;
+  if (!selected) {
+    throw new Error("Data source not found. Make sure it's shared with your integration.");
   }
+
+  // Ensure the database schema has all required columns
+  const schemaResult = await ensureDatabaseSchema(selected.databaseId);
+
+  // Save the data_source_id to .env (NOT the database_id)
+  updateEnvFile("NOTION_DATABASE_ID", dataSourceId);
+  // Update runtime env
+  Bun.env.NOTION_DATABASE_ID = dataSourceId;
+  process.env.NOTION_DATABASE_ID = dataSourceId;
+  cachedDataSourceId = dataSourceId;
+
+  return { id: dataSourceId, name: selected.name, schemaWarnings: schemaResult.schemaWarnings };
 }
 
 /**
@@ -161,11 +160,9 @@ export async function ensureDatabaseSchema(databaseId: string): Promise<{ schema
 
     // Find the title property and rename it to "Title" if needed
     let titlePropName = "Title";
-    let titlePropId: string | null = null;
     for (const [propName, propValue] of Object.entries(properties)) {
       const prop = propValue as any;
       if (prop.type === "title") {
-        titlePropId = prop.id;
         if (propName !== "Title") {
           titlePropName = propName;
         }
@@ -247,19 +244,20 @@ function buildPropertyDefinition(type: string): any {
 }
 
 /**
- * Get the database ID from cache or env. Returns null if not set.
+ * Get the data source ID from cache or env. Returns null if not set.
+ * Note: This stores the data_source_id (not database_id) in NOTION_DATABASE_ID env var.
  */
-export async function getDatabaseId(): Promise<string | null> {
+export async function getDataSourceId(): Promise<string | null> {
   // Return cached ID if available
-  if (cachedDatabaseId) {
-    return cachedDatabaseId;
+  if (cachedDataSourceId) {
+    return cachedDataSourceId;
   }
 
-  // Check env var
-  const envDatabaseId = Bun.env.NOTION_DATABASE_ID?.trim();
-  if (envDatabaseId && envDatabaseId.length > 0) {
-    cachedDatabaseId = envDatabaseId;
-    return cachedDatabaseId;
+  // Check env var (stored under NOTION_DATABASE_ID for backwards compatibility)
+  const envId = Bun.env.NOTION_DATABASE_ID?.trim();
+  if (envId && envId.length > 0) {
+    cachedDataSourceId = envId;
+    return cachedDataSourceId;
   }
 
   return null;
@@ -406,15 +404,31 @@ async function createFullInvoicePage(parentPageId: string, invoice: InvoiceData)
 }
 
 /**
- * Create a new row in the transaction ledger database with a child page for full details.
- * Step 1: Create database entry (row in table)
- * Step 2: Create child page with full invoice details
- * Step 3: Update the "See Full" property with a link to the child page
+ * Helper to resolve column name (handles fallback names from schema migration)
+ */
+async function resolveColumnName(dataSourceId: string, baseName: string, fallbackName: string): Promise<string> {
+  const notion = getClient();
+  // Get the data source to find parent database_id
+  const allDataSources = await listSharedDatabases();
+  const ds = allDataSources.find((d) => d.id === dataSourceId);
+  if (!ds) return baseName;
+
+  const db = await notion.databases.retrieve({ database_id: ds.databaseId });
+  const properties = (db as any).properties || {};
+
+  if (properties[baseName]) return baseName;
+  if (properties[fallbackName]) return fallbackName;
+  return baseName; // default to base name, Notion will give a better error
+}
+
+/**
+ * Create a new row in the transaction ledger with a child page for full details.
+ * Uses data_source_id (not database_id) for the parent.
  */
 export async function createInvoicePage(invoice: InvoiceData): Promise<string> {
-  const databaseId = await getDatabaseId();
+  const dataSourceId = await getDataSourceId();
 
-  if (!databaseId) {
+  if (!dataSourceId) {
     throw new Error(
       "No database selected.\n\n" +
       "To fix:\n" +
@@ -426,58 +440,54 @@ export async function createInvoicePage(invoice: InvoiceData): Promise<string> {
 
   const notion = getClient();
 
-  // Determine the actual column names — use fallback names if schema migration created them
-  const db = await notion.databases.retrieve({ database_id: databaseId });
-  const properties = (db as any).properties || {};
-
-  // Helper to get the actual column name (original or fallback)
-  const colName = (base: string, fallback: string): string => {
-    return properties[base] && properties[base].type === getExpectedType(base) ? base :
-           properties[fallback] ? fallback : base;
-  };
+  // Resolve column names (handles fallback names from schema migration)
+  const txnTypeCol = await resolveColumnName(dataSourceId, "Transaction Type", "Transaction Type (Txn)");
+  const amountCol = await resolveColumnName(dataSourceId, "Amount", "Amount (Txn)");
+  const dateCol = await resolveColumnName(dataSourceId, "Date", "Date (Txn)");
+  const partiesCol = await resolveColumnName(dataSourceId, "Parties", "Parties (Txn)");
+  const summaryCol = await resolveColumnName(dataSourceId, "Summary", "Summary (Txn)");
+  const seeFullCol = await resolveColumnName(dataSourceId, "See Full", "See Full (Txn)");
+  const invoiceIdCol = await resolveColumnName(dataSourceId, "Invoice ID", "Invoice ID (Txn)");
 
   // Step 1: Create the database entry (row in the ledger table)
-  const txnTypeCol = colName("Transaction Type", "Transaction Type (Txn)");
-  const amountCol = colName("Amount", "Amount (Txn)");
-  const dateCol = colName("Date", "Date (Txn)");
-  const partiesCol = colName("Parties", "Parties (Txn)");
-  const summaryCol = colName("Summary", "Summary (Txn)");
-  const seeFullCol = colName("See Full", "See Full (Txn)");
-  const invoiceIdCol = colName("Invoice ID", "Invoice ID (Txn)");
-
-  const dbEntry = await notion.pages.create({
-    parent: {
-      type: "database_id",
-      database_id: databaseId,
-    },
-    properties: {
-      Title: {
-        title: [{ text: { content: invoice.invoiceNumber } }],
+  // Use data_source_id as parent (new Notion API requirement)
+  const dbEntry = await notion.request({
+    method: "post",
+    path: "pages",
+    body: {
+      parent: {
+        type: "data_source_id",
+        data_source_id: dataSourceId,
       },
-      [dateCol]: {
-        date: { start: invoice.date },
-      },
-      [txnTypeCol]: {
-        select: {
-          name: invoice.transactionType === "income" ? "Income" : "Expense",
+      properties: {
+        Title: {
+          title: [{ type: "text", text: { content: invoice.invoiceNumber } }],
         },
-      },
-      [amountCol]: {
-        number: invoice.signedAmount,
-      },
-      [invoiceIdCol]: {
-        rich_text: invoice.invoiceId ? [{ type: "text", text: { content: invoice.invoiceId } }] : [],
-      },
-      [partiesCol]: {
-        rich_text: [{ type: "text", text: { content: invoice.parties } }],
-      },
-      [summaryCol]: {
-        rich_text: [{ type: "text", text: { content: invoice.summary } }],
+        [dateCol]: {
+          date: { start: invoice.date },
+        },
+        [txnTypeCol]: {
+          select: {
+            name: invoice.transactionType === "income" ? "Income" : "Expense",
+          },
+        },
+        [amountCol]: {
+          number: invoice.signedAmount,
+        },
+        [invoiceIdCol]: {
+          rich_text: invoice.invoiceId ? [{ type: "text", text: { content: invoice.invoiceId } }] : [],
+        },
+        [partiesCol]: {
+          rich_text: [{ type: "text", text: { content: invoice.parties } }],
+        },
+        [summaryCol]: {
+          rich_text: [{ type: "text", text: { content: invoice.summary } }],
+        },
       },
     },
   });
 
-  const dbEntryPageId = dbEntry.id;
+  const dbEntryPageId = (dbEntry as any).id;
 
   // Step 2: Create the child page with full invoice details
   const childPageId = await createFullInvoicePage(dbEntryPageId, invoice);
@@ -504,20 +514,4 @@ export async function createInvoicePage(invoice: InvoiceData): Promise<string> {
   );
 
   return dbEntryPageId;
-}
-
-/**
- * Get the expected type for a column name (for schema detection)
- */
-function getExpectedType(colName: string): string {
-  const map: Record<string, string> = {
-    "Date": "date",
-    "Transaction Type": "select",
-    "Amount": "number",
-    "Invoice ID": "rich_text",
-    "Parties": "rich_text",
-    "Summary": "rich_text",
-    "See Full": "rich_text",
-  };
-  return map[colName] || "rich_text";
 }

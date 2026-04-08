@@ -6,7 +6,7 @@ import {
   clearAllFailedSaves,
   incrementRetryCount,
 } from "./api/failedSaves.ts";
-import { listSharedDatabases, selectDatabase, getDatabaseId, createInvoicePage } from "./services/notion.ts";
+import { listSharedDatabases, selectDatabase, getDataSourceId, createInvoicePage } from "./services/notion.ts";
 import { Client } from "@notionhq/client";
 
 // Explicitly load .env file (Bun should do this automatically, but being explicit)
@@ -197,8 +197,8 @@ async function healthCheck() {
   }
 
   // Check database selection
-  const dbId = await getDatabaseId();
-  if (!dbId) {
+  const dsId = await getDataSourceId();
+  if (!dsId) {
     console.log("");
     console.log("⚠️  Notion: No database selected");
     console.log("   Go to http://localhost:3000 → Database section → pick a database");
@@ -208,7 +208,7 @@ async function healthCheck() {
     console.log("   2. Share it with your integration (••• → Add connections)");
     console.log("   3. Select it in the app's database picker");
   } else {
-    console.log(`✅ Notion: Database selected: ${dbId}`);
+    console.log(`✅ Notion: Database selected: ${dsId.slice(0, 8)}...`);
   }
 }
 
