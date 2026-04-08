@@ -203,9 +203,12 @@ export async function ensureDatabaseSchema(databaseId: string): Promise<{ schema
 
     // Apply updates if needed
     if (Object.keys(updatePayload).length > 0) {
-      await notion.databases.update({
-        database_id: databaseId,
-        ...updatePayload,
+      await notion.request({
+        method: "patch",
+        path: `databases/${databaseId}`,
+        body: {
+          properties: updatePayload,
+        },
       });
       console.log(`📊 Database schema updated: ${Object.keys(updatePayload).length} changes applied`);
     }
