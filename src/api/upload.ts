@@ -91,12 +91,25 @@ export async function handleUpload(req: Request): Promise<Response> {
         });
         console.log(`✅ Saved to Notion: ${invoiceData.invoiceNumber}`);
       } catch (error) {
-        console.error("Notion error:", error);
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+        // Check if it's an auth error - log helpful info
+        if (errorMessage.includes("401") || errorMessage.includes("invalid")) {
+          console.error("❌ Notion authentication failed:");
+          console.error("   Please check your NOTION_API_KEY in .env");
+          console.error("   Go to https://www.notion.so/my-integrations to verify your token");
+        } else if (errorMessage.includes("No pages found")) {
+          console.error("❌ No Notion pages shared with integration:");
+          console.error("   Open a Notion page → ••• → Add connections → select your integration");
+        } else {
+          console.error("Notion error:", error);
+        }
+
         results.push({
           success: true,
           fileName,
           invoiceData,
-          error: `Extracted data saved locally but failed to save to Notion: ${error instanceof Error ? error.message : "Unknown error"}`,
+          error: `Extracted data saved locally but failed to save to Notion: ${errorMessage}`,
           notionPageId: undefined,
         });
       }

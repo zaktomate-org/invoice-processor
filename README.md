@@ -33,7 +33,7 @@ bun install
 
 # Copy environment file and configure
 cp .env.example .env
-# Edit .env with your Notion API key
+# Edit .env with your Notion API key (see detailed setup below)
 ```
 
 ### Running the Server
@@ -48,38 +48,75 @@ bun run start
 
 The server starts at `http://localhost:3000` by default (configurable via `PORT` in `.env`).
 
-## 🔑 API Key Setup
+---
 
-### 1. Google Gemini API Keys
+## 🔑 Detailed API Key Setup Guide
 
-1. Go to [Google AI Studio](https://aistudio.google.com/)
+### Step 1: Create a Notion Integration (Get API Key)
+
+This is the **most common source of errors**. Follow each step carefully:
+
+1. **Open Notion** in your browser and log in
+2. Go to **[notion.so/my-integrations](https://www.notion.so/my-integrations)**
+3. Click the **"+ New integration"** button (top right)
+4. Fill in the form:
+   - **Integration name**: `Invoice Processor` (or whatever you want)
+   - **Associated workspace**: Select your workspace from the dropdown
+   - **Icon**: Optional — upload an icon or skip
+5. Click **"Submit"** to create the integration
+6. You'll be taken to the integration's settings page
+7. Click on the **"Internal Integration"** tab (or "Configuration" tab)
+8. Under **"Internal Integration Secret"**, click **"Show"** or **"Refresh"**
+9. **Copy the token** — it will look like:
+   ```
+   ntn_1234567890abcdef... (long string)
+   ```
+   > ⚠️ **Important**: If you had a token starting with `secret_`, that's the old format. Notion now issues tokens starting with `ntn_`. Both work.
+10. **Open your `.env` file** in the project root and paste it:
+    ```env
+    NOTION_API_KEY=ntn_your-token-here
+    ```
+
+> 🔄 **If your token stops working**: Go back to the integration settings page and click **"Refresh"** under Internal Integration Secret to generate a new token. **Old tokens are invalidated immediately when you refresh.** Update your `.env` file with the new token.
+
+### Step 2: Share a Notion Page with Your Integration
+
+**Your integration cannot access your workspace by default.** You must manually share at least one page with it:
+
+1. **Open Notion** and navigate to any page in your workspace (this will be the parent page where the invoice database is created)
+2. **Create a new page** if you don't have one:
+   - Click **"+ New Page"** in the sidebar
+   - Name it something like `"Invoice Processor"` or `"Work"`
+   - The page can be blank — it just needs to exist
+3. On that page, click the **"•••" (three dots)** menu in the **top-right corner** of the page
+4. Scroll down and click **"Add connections"** (or "Connect to" in some versions)
+5. In the search box, **type the name of your integration** (e.g., "Invoice Processor")
+6. **Click your integration** in the dropdown list to select it
+7. You should see a confirmation that the connection was added
+
+> ✅ **Verify**: The integration name should now appear in the page's connections list. If you see it, the page is shared correctly.
+
+### Step 3: Verify Your Setup
+
+1. **Save your `.env` file** with the correct `NOTION_API_KEY`
+2. **Restart the server** if it's running:
+   ```bash
+   # Stop the current server (Ctrl+C)
+   bun run dev
+   ```
+3. The server will automatically test the Notion connection on startup and report any issues
+
+### Step 4: Google Gemini API Keys
+
+1. Go to **[Google AI Studio](https://aistudio.google.com/)**
 2. Sign in with your Google account
 3. Click **"Create API Key"** in the left sidebar
 4. Copy the generated key (starts with `AIza...`)
-5. Add it to the Invoice Processor UI in the **⚙️ Gemini API Keys** section
+5. Add it to the Invoice Processor UI in the **⚙️ Gemini API Keys** section (at the bottom of the page)
 
 > **Tip**: Create multiple API keys for automatic rotation and fallback. The system randomly selects a key per request and retries with other keys if one fails.
 
-### 2. Notion API Key
-
-1. Go to [Notion Integrations](https://www.notion.so/my-integrations)
-2. Click **"New Integration"**
-3. Name it (e.g., "Invoice Processor") and select your workspace
-4. Copy the **"Internal Integration Token"** (starts with `secret_...`)
-5. Add it to your `.env` file:
-
-```env
-NOTION_API_KEY=secret_your-token-here
-NOTION_DATABASE_ID=  # Leave empty to auto-create
-PORT=3000
-```
-
-### 3. Share Notion Page with Integration
-
-1. Open Notion and navigate to any page in your workspace
-2. Click the **"..."** menu in the top-right
-3. Select **"Add connections"** → choose your "Invoice Processor" integration
-4. The integration will now have access to create databases under this page
+---
 
 ## 📋 Usage
 
@@ -98,6 +135,8 @@ PORT=3000
 | Documents | PDF | 50 MB |
 
 > **Note**: PDFs are sent directly to Gemini as base64-encoded files. Gemini 3 Flash processes them natively with its vision pipeline.
+
+---
 
 ## 🏗️ Architecture
 
@@ -124,6 +163,8 @@ PORT=3000
 6. Invoice data saved to Notion database (auto-created if needed)
 7. Results displayed in browser with formatted cards
 
+---
+
 ## 📁 Project Structure
 
 ```
@@ -148,13 +189,17 @@ invoice-processor/
 └── plan.md                    # Development plan with checkpoints
 ```
 
+---
+
 ## 🔧 Configuration
 
 | Variable | Description | Default |
 |----------|------------|---------|
-| `NOTION_API_KEY` | Notion integration token | _(required)_ |
+| `NOTION_API_KEY` | Notion integration token (starts with `ntn_` or `secret_`) | _(required)_ |
 | `NOTION_DATABASE_ID` | Existing database ID (leave empty to auto-create) | _(auto)_ |
 | `PORT` | Server port number | `3000` |
+
+---
 
 ## 🔄 API Key Rotation
 
@@ -171,22 +216,56 @@ The system supports multiple Gemini API keys for:
 3. View all keys in the table with usage statistics
 4. Delete keys with the **Delete** button
 
+---
+
 ## 🐛 Troubleshooting
+
+### "API token is invalid" (Notion 401 Unauthorized)
+
+This is the **most common error**. Here's exactly how to fix it:
+
+1. **Check your token in `.env`**:
+   ```env
+   NOTION_API_KEY=ntn_your-token-here
+   ```
+   - Make sure there are **no trailing spaces** or invisible characters
+   - The token should start with `ntn_` (new format) or `secret_` (old format)
+
+2. **Verify the token is still valid**:
+   - Go to [notion.so/my-integrations](https://www.notion.so/my-integrations)
+   - Click on your integration
+   - Go to **"Internal Integration"** tab
+   - If you see a **"Refresh"** button, your token is still valid (don't click refresh unless you need to!)
+   - If the token looks different from what's in your `.env`, copy the new one
+
+3. **⚠️ DO NOT click "Refresh"** unless your token is compromised — this **immediately invalidates** your current token
+
+4. **Restart the server** after updating `.env`:
+   ```bash
+   # Stop current server (Ctrl+C), then:
+   bun run dev
+   ```
+
+5. **Test the token manually** (optional):
+   ```bash
+   curl -H "Authorization: Bearer ntn_your-token-here" \
+        -H "Notion-Version: 2026-03-11" \
+        https://api.notion.com/v1/users/me
+   ```
+   If you get a JSON response with your bot info, the token is valid.
+
+### "No pages found in Notion workspace"
+
+This means **no pages are shared** with your integration:
+
+1. Open Notion and go to any page (or create a new one)
+2. Click **"•••"** → **"Add connections"** → select your integration
+3. Restart the server
 
 ### "No Gemini API keys configured"
 
 - Add at least one API key in the ⚙️ section of the UI
 - Keys are stored in memory and lost on server restart — re-add after restart
-
-### "No pages found in Notion workspace"
-
-- Share at least one Notion page with your integration (see Step 3 in API Key Setup)
-- The integration needs access to create databases under a parent page
-
-### "NOTION_API_KEY not set"
-
-- Ensure `.env` file exists with `NOTION_API_KEY=secret_...`
-- Restart the server after modifying `.env`
 
 ### Gemini API rate limit errors
 
@@ -203,6 +282,8 @@ bun run type-check
 bun install
 ```
 
+---
+
 ## 📝 Development Scripts
 
 | Command | Description |
@@ -210,6 +291,8 @@ bun install
 | `bun run dev` | Start server with hot reload |
 | `bun run start` | Start server in production mode |
 | `bun run type-check` | Run TypeScript type checking |
+
+---
 
 ## 🛠️ Tech Stack
 

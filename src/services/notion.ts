@@ -7,9 +7,13 @@ let cachedDatabaseId: string | null = null;
 
 function getClient(): Client {
   if (!notionClient) {
-    const apiKey = Bun.env.NOTION_API_KEY;
+    const apiKey = Bun.env.NOTION_API_KEY?.trim();
     if (!apiKey) {
-      throw new Error("NOTION_API_KEY not set in environment");
+      throw new Error(
+        "NOTION_API_KEY not set in environment.\n" +
+        "Please add your Notion integration token to the .env file.\n" +
+        "Get one at: https://www.notion.so/my-integrations"
+      );
     }
     notionClient = new Client({ auth: apiKey });
   }
@@ -44,17 +48,41 @@ async function createInvoiceDatabase() {
   const notion = getClient();
 
   // Find a suitable parent page
-  const pages = await notion.search({
-    filter: {
-      property: "object",
-      value: "page",
-    },
-    page_size: 1,
-  });
+  let pages;
+  try {
+    pages = await notion.search({
+      filter: {
+        property: "object",
+        value: "page",
+      },
+      page_size: 1,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("401")) {
+      throw new Error(
+        "Notion API token is invalid (401 Unauthorized).\n\n" +
+        "How to fix:\n" +
+        "1. Go to https://www.notion.so/my-integrations\n" +
+        "2. Click on your integration → 'Internal Integration' tab\n" +
+        "3. Copy the token (starts with 'ntn_')\n" +
+        "4. Paste it in your .env file as NOTION_API_KEY\n" +
+        "5. DO NOT click 'Refresh' unless your token was exposed\n" +
+        "6. Restart the server\n\n" +
+        `Technical details: ${error.message}`
+      );
+    }
+    throw error;
+  }
 
   if (pages.results.length === 0) {
     throw new Error(
-      "No pages found in Notion workspace. Please share at least one page with your integration."
+      "No pages found in your Notion workspace that are shared with this integration.\n\n" +
+      "How to fix:\n" +
+      "1. Open Notion and go to any page (or create a new one)\n" +
+      "2. Click '•••' (three dots) in the top-right of the page\n" +
+      "3. Click 'Add connections' (or 'Connect to')\n" +
+      "4. Search for your integration name and select it\n" +
+      "5. Restart the server"
     );
   }
 
