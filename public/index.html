@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Invoice Processor</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📄 Invoice Processor</h1>
+      <p class="subtitle">Upload invoices, AI extracts the data, saved to Notion</p>
+    </header>
+
+    <main>
+      <!-- Upload Section -->
+      <section class="section upload-section">
+        <h2>Upload Invoices</h2>
+        
+        <div id="drop-zone" class="drop-zone">
+          <div class="drop-content">
+            <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+            <p><strong>Drag & drop files here</strong> or <span class="browse-link">browse</span></p>
+            <p class="file-types">PNG, JPG, WEBP, PDF (max 50MB each)</p>
+          </div>
+          <input type="file" id="file-input" multiple accept=".png,.jpg,.jpeg,.webp,.pdf" hidden>
+        </div>
+
+        <div id="file-list" class="file-list"></div>
+
+        <button id="process-btn" class="btn btn-primary" disabled>
+          <span class="btn-text">Process Invoices</span>
+          <span class="btn-loader" hidden>
+            <svg class="spinner" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" fill="none" stroke-width="3" />
+            </svg>
+            Processing...
+          </span>
+        </button>
+      </section>
+
+      <!-- Results Section -->
+      <section id="results-section" class="section results-section" hidden>
+        <h2>Results</h2>
+        <div id="summary" class="summary"></div>
+        <div id="results" class="results"></div>
+      </section>
+
+      <!-- API Keys Section -->
+      <section class="section keys-section">
+        <h2>⚙️ Gemini API Keys</h2>
+        <p class="section-desc">Add multiple API keys for automatic rotation and fallback</p>
+        
+        <div class="key-input">
+          <input type="password" id="key-input" placeholder="Enter Gemini API key (AIza...)">
+          <button id="add-key-btn" class="btn btn-secondary">Add Key</button>
+        </div>
+
+        <div id="keys-message" class="message" hidden></div>
+
+        <table id="keys-table" class="keys-table" hidden>
+          <thead>
+            <tr>
+              <th>Key ID</th>
+              <th>Requests</th>
+              <th>Last Used</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="keys-tbody"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <footer>
+      <p>Built with Gemini AI & Notion API • Powered by Bun</p>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
